@@ -1,12 +1,15 @@
 import * as React from "react";
+import AiDevelopment from './AiDevelopment';
 
 const FeaturePage: React.FC = () => {
   const [featureDescription, setFeatureDescription] = React.useState('');
   const [isDragging, setIsDragging] = React.useState(false);
   const [uploadedFiles, setUploadedFiles] = React.useState<File[]>([]);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
+  const [showDevelopment, setShowDevelopment] = React.useState(false);
+  const [isTextareaFocused, setIsTextareaFocused] = React.useState(false);
+  const [isButtonHovered, setIsButtonHovered] = React.useState(false);
   
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const steps = [
     { number: 1, title: "Upload\n& Define" },
@@ -43,10 +46,15 @@ const FeaturePage: React.FC = () => {
     }
   };
 
+  const handleStartDevelopment = () => {
+    console.log('Starting AI Development...', { featureDescription, uploadedFiles });
+    setShowDevelopment(true);
+  };
+
   const styles = {
     container: {
       minHeight: '100vh',
-      background: 'linear-gradient(135deg,rgb(226, 228, 233) 0%,rgb(50, 51, 52) 100%)',
+      background: 'linear-gradient(135deg, rgb(226, 228, 233) 0%, rgb(50, 51, 52) 100%)',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       padding: '60px 20px',
       display: 'flex',
@@ -103,7 +111,7 @@ const FeaturePage: React.FC = () => {
     stepNumber: {
       width: '60px',
       height: '60px',
-      background: 'linear-gradient(135deg,rgb(10, 10, 11) 0%,rgb(240, 242, 246) 100%)',
+      background: 'linear-gradient(135deg, rgb(10, 10, 11) 0%, rgb(240, 242, 246) 100%)',
       borderRadius: '50%',
       display: 'flex',
       alignItems: 'center',
@@ -111,6 +119,9 @@ const FeaturePage: React.FC = () => {
       color: 'white',
       fontSize: '28px',
       fontWeight: 700
+    },
+    stepNumberActive: {
+      background: 'linear-gradient(135deg, rgb(234, 102, 102) 0%, rgb(72, 39, 105) 100%)',
     },
     stepText: {
       fontSize: '24px',
@@ -196,11 +207,8 @@ const FeaturePage: React.FC = () => {
       borderColor: '#667eea',
       background: '#ffffff'
     },
-    placeholder: {
-      color: '#a0aec0'
-    },
     startButton: {
-      background: 'linear-gradient(135deg,rgb(234, 102, 102) 0%,rgb(72, 39, 105) 100%)',
+      background: 'linear-gradient(135deg, rgb(234, 102, 102) 0%, rgb(72, 39, 105) 100%)',
       color: 'white',
       fontSize: '20px',
       fontWeight: 600,
@@ -218,6 +226,10 @@ const FeaturePage: React.FC = () => {
     startButtonHover: {
       transform: 'translateY(-2px)',
       boxShadow: '0 6px 20px rgba(8, 50, 236, 0.5)'
+    },
+    developmentWrapper: {
+      maxWidth: '1400px',
+      width: '100%'
     }
   };
 
@@ -229,8 +241,13 @@ Example:
 - Create REST API endpoints for user management
 - Add email notification system`;
 
-  const [isTextareaFocused, setIsTextareaFocused] = React.useState(false);
-  const [isButtonHovered, setIsButtonHovered] = React.useState(false);
+  // Determine which step is active
+  const getActiveStep = () => {
+    if (showDevelopment) return 2; // AI Development
+    return 1; // Upload & Define
+  };
+
+  const activeStep = getActiveStep();
 
   React.useEffect(() => {
     const style = document.createElement('style');
@@ -264,7 +281,12 @@ Example:
           {steps.map((step, index) => (
             <React.Fragment key={step.number}>
               <div style={styles.step}>
-                <div style={styles.stepNumber}>{step.number}</div>
+                <div style={{
+                  ...styles.stepNumber,
+                  ...(activeStep === step.number ? styles.stepNumberActive : {})
+                }}>
+                  {step.number}
+                </div>
                 <div style={styles.stepText}>{step.title}</div>
               </div>
               {index < steps.length - 1 && <span style={styles.arrow}>→</span>}
@@ -278,63 +300,69 @@ Example:
         </div>
       </div>
 
-      <div style={styles.uploadSection}>
-        <div
-          style={styles.uploadBox}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={handleFileClick}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            style={{ display: 'none' }}
-            onChange={handleFileChange}
-          />
-          <div style={styles.folderIcon}>📁</div>
-          <div style={styles.uploadTitle}>Upload Repository</div>
-          <div style={styles.uploadSubtitle}>
-            Click to browse or drag and drop your repository folder
-          </div>
-          {uploadedFiles.length > 0 && (
-            <div style={{ marginTop: '20px', color: '#48bb78' }}>
-              ✓ {uploadedFiles.length} files uploaded
-            </div>
-          )}
-        </div>
-
-        <div>
-          <h2 style={styles.sectionTitle}>Feature Description</h2>
-          <div style={styles.textareaContainer}>
-            <textarea
-              value={featureDescription}
-              onChange={(e) => setFeatureDescription(e.target.value)}
-              placeholder={placeholderText}
-              style={{
-                ...styles.textarea,
-                ...(isTextareaFocused ? styles.textareaFocused : {})
-              }}
-              onFocus={() => setIsTextareaFocused(true)}
-              onBlur={() => setIsTextareaFocused(false)}
+      {!showDevelopment ? (
+        <div style={styles.uploadSection}>
+          <div
+            style={styles.uploadBox}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={handleFileClick}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={handleFileChange}
             />
+            <div style={styles.folderIcon}>📁</div>
+            <div style={styles.uploadTitle}>Upload Repository</div>
+            <div style={styles.uploadSubtitle}>
+              Click to browse or drag and drop your repository folder
+            </div>
+            {uploadedFiles.length > 0 && (
+              <div style={{ marginTop: '20px', color: '#48bb78' }}>
+                ✓ {uploadedFiles.length} files uploaded
+              </div>
+            )}
           </div>
-        </div>
 
-        <button
-          style={{
-            ...styles.startButton,
-            ...(isButtonHovered ? styles.startButtonHover : {})
-          }}
-          onMouseEnter={() => setIsButtonHovered(true)}
-          onMouseLeave={() => setIsButtonHovered(false)}
-          onClick={() => console.log('Starting AI Development...', { featureDescription, uploadedFiles })}
-        >
-          <span>🚀</span>
-          <span>Start AI Development</span>
-        </button>
-      </div>
+          <div>
+            <h2 style={styles.sectionTitle}>Feature Description</h2>
+            <div style={styles.textareaContainer}>
+              <textarea
+                value={featureDescription}
+                onChange={(e) => setFeatureDescription(e.target.value)}
+                placeholder={placeholderText}
+                style={{
+                  ...styles.textarea,
+                  ...(isTextareaFocused ? styles.textareaFocused : {})
+                }}
+                onFocus={() => setIsTextareaFocused(true)}
+                onBlur={() => setIsTextareaFocused(false)}
+              />
+            </div>
+          </div>
+
+          <button
+            style={{
+              ...styles.startButton,
+              ...(isButtonHovered ? styles.startButtonHover : {})
+            }}
+            onMouseEnter={() => setIsButtonHovered(true)}
+            onMouseLeave={() => setIsButtonHovered(false)}
+            onClick={handleStartDevelopment}
+          >
+            <span>🚀</span>
+            <span>Start AI Development</span>
+          </button>
+        </div>
+      ) : (
+        <div style={styles.developmentWrapper}>
+          <AiDevelopment />
+        </div>
+      )}
     </div>
   );
 };
