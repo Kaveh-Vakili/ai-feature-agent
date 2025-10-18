@@ -1,6 +1,15 @@
 import * as React from "react";
 import AiDevelopment from './AiDevelopment';
 
+interface FileContent {
+  name: string;
+  content: string;
+}
+
+interface GeneratedFiles {
+  [filename: string]: string;
+}
+
 const FeaturePage: React.FC = () => {
   const [featureDescription, setFeatureDescription] = React.useState('');
   const [isDragging, setIsDragging] = React.useState(false);
@@ -8,8 +17,15 @@ const FeaturePage: React.FC = () => {
   const [showDevelopment, setShowDevelopment] = React.useState(false);
   const [isTextareaFocused, setIsTextareaFocused] = React.useState(false);
   const [isButtonHovered, setIsButtonHovered] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [generatedCode, setGeneratedCode] = React.useState<GeneratedFiles | null>(null);
+  const [fileContents, setFileContents] = React.useState<FileContent[]>([]);
   
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Backend URL - change this if your backend runs on a different port
+  const BACKEND_URL = 'http://localhost:8000';
 
   const steps = [
     { number: 1, title: "Upload\n& Define" },
@@ -33,7 +49,7 @@ const FeaturePage: React.FC = () => {
     setIsDragging(false);
     
     const files = Array.from(e.dataTransfer.files);
-    setUploadedFiles(files);
+    handleFiles(files);
   };
 
   const handleFileClick = () => {
@@ -42,14 +58,115 @@ const FeaturePage: React.FC = () => {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setUploadedFiles(Array.from(e.target.files));
+      handleFiles(Array.from(e.target.files));
     }
   };
 
-  const handleStartDevelopment = () => {
-    console.log('Starting AI Development...', { featureDescription, uploadedFiles });
-    setShowDevelopment(true);
+  // Read file contents when files are uploaded
+  const handleFiles = async (files: File[]) => {
+    setUploadedFiles(files);
+    setError(null);
+    
+    // Read file contents for sending to backend
+    const contents: FileContent[] = [];
+    
+    for (const file of files) {
+      // Only read text files (skip images, binaries)
+      if (file.type.startsWith('text/') || 
+          file.name.endsWith('.py') || 
+          file.name.endsWith('.js') || 
+          file.name.endsWith('.ts') ||
+          file.name.endsWith('.jsx') ||
+          file.name.endsWith('.tsx') ||
+          file.name.endsWith('.json') ||
+          file.name.endsWith('.md')) {
+        
+        try {
+          const text = await file.text();
+          contents.push({
+            name: file.name,
+            content: text
+          });
+        } catch (err) {
+          console.warn(`Could not read file ${file.name}:`, err);
+        }
+      }
+    }
+    
+    setFileContents(contents);
+    console.log(`Read ${contents.length} text files out of ${files.length} total files`);
   };
+
+  const handleStartDevelopment = async () => {
+    // Validate inputs
+    if (!featureDescription.trim()) {
+      setError('Please enter a feature description');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    
+    console.log('Starting AI Development...', { 
+      featureDescription, 
+      filesCount: uploadedFiles.length,
+      textFilesCount: fileContents.length 
+    });
+
+    try {
+      // Prepare request body
+      const requestBody = {
+        description: featureDescription,
+        repository_files: fileContents.length > 0 ? fileContents : [],  // Ensure empty array if no files
+        language: "python",
+        framework: null  // Send null explicitly, not undefined
+      };
+
+      // Call the backend API
+      const response = await fetch(`${BACKEND_URL}/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('Code generated successfully:', data);
+        setGeneratedCode(data.files);
+        setShowDevelopment(true);
+      } else {
+        throw new Error(data.message || 'Failed to generate code');
+      }
+      
+    } catch (err) {
+      console.error('Error calling backend:', err);
+      setError(err instanceof Error ? err.message : 'Failed to generate code. Please ensure the backend is running.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Check backend status on mount
+  React.useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/generate`);
+        const data = await response.json();
+        console.log('Backend status:', data);
+      } catch (err) {
+        console.warn('Backend not reachable. Make sure it\'s running on port 8000');
+      }
+    };
+    
+    checkBackend();
+  }, []);
 
   const styles = {
     container: {
@@ -121,7 +238,7 @@ const FeaturePage: React.FC = () => {
       fontWeight: 700
     },
     stepNumberActive: {
-      background: 'linear-gradient(135deg, rgb(234, 102, 102) 0%, rgb(72, 39, 105) 100%)',
+      background: 'linear-gradient(135deg, rgb(102, 234, 128) 0%, rgb(39, 105, 50) 100%)',
     },
     stepText: {
       fontSize: '24px',
@@ -208,20 +325,23 @@ const FeaturePage: React.FC = () => {
       background: '#ffffff'
     },
     startButton: {
-      background: 'linear-gradient(135deg, rgb(234, 102, 102) 0%, rgb(72, 39, 105) 100%)',
+      background: isLoading 
+        ? 'linear-gradient(135deg, #cbd5e0 0%, #a0aec0 100%)'
+        : 'linear-gradient(135deg, rgb(234, 102, 102) 0%, rgb(72, 39, 105) 100%)',
       color: 'white',
       fontSize: '20px',
       fontWeight: 600,
       padding: '16px 40px',
       borderRadius: '12px',
       border: 'none',
-      cursor: 'pointer',
+      cursor: isLoading ? 'not-allowed' : 'pointer',
       display: 'flex',
       alignItems: 'center',
       gap: '12px',
       marginTop: '30px',
       boxShadow: '0 4px 15px rgba(60, 76, 145, 0.4)',
-      transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+      opacity: isLoading ? 0.7 : 1
     },
     startButtonHover: {
       transform: 'translateY(-2px)',
@@ -230,6 +350,37 @@ const FeaturePage: React.FC = () => {
     developmentWrapper: {
       maxWidth: '1400px',
       width: '100%'
+    },
+    errorMessage: {
+      background: '#fed7d7',
+      color: '#c53030',
+      padding: '12px 20px',
+      borderRadius: '8px',
+      marginTop: '20px',
+      fontSize: '16px',
+      fontWeight: 500
+    },
+    successMessage: {
+      background: '#c6f6d5',
+      color: '#22543d',
+      padding: '12px 20px',
+      borderRadius: '8px',
+      marginTop: '20px',
+      fontSize: '16px',
+      fontWeight: 500
+    },
+    fileList: {
+      marginTop: '20px',
+      padding: '15px',
+      background: '#f7fafc',
+      borderRadius: '8px',
+      maxHeight: '200px',
+      overflowY: 'auto' as const
+    },
+    fileItem: {
+      fontSize: '14px',
+      color: '#4a5568',
+      padding: '4px 0'
     }
   };
 
@@ -241,10 +392,9 @@ Example:
 - Create REST API endpoints for user management
 - Add email notification system`;
 
-  // Determine which step is active
   const getActiveStep = () => {
-    if (showDevelopment) return 2; // AI Development
-    return 1; // Upload & Define
+    if (showDevelopment) return 2;
+    return 1;
   };
 
   const activeStep = getActiveStep();
@@ -315,15 +465,28 @@ Example:
               multiple
               style={{ display: 'none' }}
               onChange={handleFileChange}
+              accept=".py,.js,.ts,.jsx,.tsx,.json,.md,.txt,.html,.css"
             />
             <div style={styles.folderIcon}>📁</div>
             <div style={styles.uploadTitle}>Upload Repository</div>
             <div style={styles.uploadSubtitle}>
-              Click to browse or drag and drop your repository folder
+              Click to browse or drag and drop your repository files
             </div>
             {uploadedFiles.length > 0 && (
-              <div style={{ marginTop: '20px', color: '#48bb78' }}>
-                ✓ {uploadedFiles.length} files uploaded
+              <div style={{ marginTop: '20px' }}>
+                <div style={{ color: '#48bb78', fontSize: '18px', marginBottom: '10px' }}>
+                  ✓ {uploadedFiles.length} files uploaded ({fileContents.length} readable)
+                </div>
+                <div style={styles.fileList}>
+                  {uploadedFiles.slice(0, 10).map((file, index) => (
+                    <div key={index} style={styles.fileItem}>
+                      {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                    </div>
+                  ))}
+                  {uploadedFiles.length > 10 && (
+                    <div style={styles.fileItem}>... and {uploadedFiles.length - 10} more files</div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -341,26 +504,47 @@ Example:
                 }}
                 onFocus={() => setIsTextareaFocused(true)}
                 onBlur={() => setIsTextareaFocused(false)}
+                disabled={isLoading}
               />
             </div>
           </div>
 
+          {error && (
+            <div style={styles.errorMessage}>
+              ⚠️ {error}
+            </div>
+          )}
+
           <button
             style={{
               ...styles.startButton,
-              ...(isButtonHovered ? styles.startButtonHover : {})
+              ...(isButtonHovered && !isLoading ? styles.startButtonHover : {})
             }}
             onMouseEnter={() => setIsButtonHovered(true)}
             onMouseLeave={() => setIsButtonHovered(false)}
             onClick={handleStartDevelopment}
+            disabled={isLoading}
           >
-            <span>🚀</span>
-            <span>Start AI Development</span>
+            {isLoading ? (
+              <>
+                <span>⏳</span>
+                <span>Generating Code...</span>
+              </>
+            ) : (
+              <>
+                <span>🚀</span>
+                <span>Start AI Development</span>
+              </>
+            )}
           </button>
         </div>
       ) : (
         <div style={styles.developmentWrapper}>
-          <AiDevelopment />
+          <AiDevelopment 
+            featureDescription={featureDescription}
+            uploadedFiles={uploadedFiles}
+            generatedCode={generatedCode}
+          />
         </div>
       )}
     </div>
