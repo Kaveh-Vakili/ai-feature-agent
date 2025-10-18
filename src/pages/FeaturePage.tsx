@@ -103,25 +103,77 @@ const FeaturePage: React.FC = () => {
       setError('Please enter a feature description');
       return;
     }
-
+  
     setIsLoading(true);
     setError(null);
+    
+    // Auto-detect language from uploaded files
+    const hasTypeScript = fileContents.some(f => 
+      f.name.endsWith('.tsx') || 
+      f.name.endsWith('.ts') || 
+      f.name.endsWith('.jsx') || 
+      f.name.endsWith('.js')
+    );
+    
+    const hasPython = fileContents.some(f => 
+      f.name.endsWith('.py')
+    );
+    
+    // Check if description mentions specific file types
+    const mentionsTsx = featureDescription.toLowerCase().includes('.tsx') || 
+                        featureDescription.toLowerCase().includes('typescript') ||
+                        featureDescription.toLowerCase().includes('react');
+    const mentionsPy = featureDescription.toLowerCase().includes('.py') || 
+                       featureDescription.toLowerCase().includes('python');
+    
+    // Determine language (prioritize based on context)
+    let language = "python"; // default
+    let framework = null;
+    
+    if (hasTypeScript || mentionsTsx) {
+      language = "typescript";
+      framework = "react";
+    } else if (hasPython || mentionsPy) {
+      language = "python";
+      // Check for Python frameworks in requirements.txt if exists
+      const reqFile = fileContents.find(f => f.name === 'requirements.txt');
+      if (reqFile) {
+        if (reqFile.content.includes('django')) framework = 'django';
+        else if (reqFile.content.includes('flask')) framework = 'flask';
+        else if (reqFile.content.includes('fastapi')) framework = 'fastapi';
+      }
+    }
+    
+    // Extract requested filename from description if mentioned
+    const requestedFileMatch = featureDescription.match(/(?:write|create|generate|want)\s+(?:a\s+)?(\S+\.(?:tsx|ts|jsx|js|py))/i);
+    const requestedFile = requestedFileMatch ? requestedFileMatch[1] : null;
     
     console.log('Starting AI Development...', { 
       featureDescription, 
       filesCount: uploadedFiles.length,
-      textFilesCount: fileContents.length 
+      textFilesCount: fileContents.length,
+      detectedLanguage: language,
+      detectedFramework: framework,
+      requestedFile: requestedFile
     });
-
+  
     try {
-      // Prepare request body
+      // Prepare enhanced request body
       const requestBody = {
         description: featureDescription,
-        repository_files: fileContents.length > 0 ? fileContents : [],  // Ensure empty array if no files
-        language: "python",
-        framework: null  // Send null explicitly, not undefined
+        repository_files: fileContents.length > 0 ? fileContents : [],
+        language: language,
+        framework: framework,
+        // Add metadata to help backend understand what we want
+        metadata: {
+          requested_file: requestedFile,
+          output_format: "raw_code", // Tell backend we want actual code, not wrapped
+          file_extension: language === "typescript" ? ".tsx" : ".py"
+        }
       };
-
+  
+      console.log('Request payload:', JSON.stringify(requestBody, null, 2));
+  
       // Call the backend API
       const response = await fetch(`${BACKEND_URL}/generate`, {
         method: 'POST',
@@ -130,16 +182,101 @@ const FeaturePage: React.FC = () => {
         },
         body: JSON.stringify(requestBody)
       });
-
+  
       if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
+        const errorData = await response.json().catch(() => null);
+        throw new Error(
+          errorData?.message || 
+          `API error: ${response.status} ${response.statusText}`
+        );
       }
-
+  
       const data = await response.json();
       
       if (data.success) {
         console.log('Code generated successfully:', data);
-        setGeneratedCode(data.files);
+        
+        let files = data.files || {};
+        
+        // Fix file extensions if backend returns wrong types
+        if (language === "typescript" && Object.keys(files).some(f => f.endsWith('.py'))) {
+          console.warn('Backend returned Python files for TypeScript request. Attempting to fix...');
+          
+          const fixedFiles: any = {};
+          
+          Object.entries(files).forEach(([filename, content]) => {
+            // Check if this is TypeScript code wrapped in a Python file
+            if (filename.endsWith('.py') && typeof content === 'string') {
+              // Try to extract TypeScript code from markdown blocks
+              const codeBlockMatch = content.match(/```(?:tsx?|typescript|jsx|javascript)?\n?([\s\S]*?)```/);
+              
+              if (codeBlockMatch) {
+                // Extract the actual code
+                const extractedCode = codeBlockMatch[1].trim();
+                
+                // Generate proper filename
+                let newFilename: string;
+                if (requestedFile) {
+                  newFilename = requestedFile;
+                } else {
+                  // Try to extract component name from the code
+                  const componentMatch = extractedCode.match(/(?:const|function|class)\s+(\w+)/);
+                  const componentName = componentMatch ? componentMatch[1] : 'Component';
+                  // Convert PascalCase to kebab-case
+                  const kebabName = componentName
+                    .replace(/([a-z])([A-Z])/g, '$1-$2')
+                    .toLowerCase();
+                  newFilename = `${kebabName}.tsx`;
+                }
+                
+                fixedFiles[newFilename] = extractedCode;
+                console.log(`Converted ${filename} to ${newFilename}`);
+              } else if (content.includes('tsx') || content.includes('jsx')) {
+                // The content might be TypeScript but not in markdown blocks
+                // Try to clean it up
+                const cleanedContent = content
+                  .replace(/^.*?(?=import|const|function|class|export|interface|type|\/\/|\/\*)/s, '')
+                  .trim();
+                
+                const newFilename = requestedFile || 'component.tsx';
+                fixedFiles[newFilename] = cleanedContent;
+              } else {
+                // Keep original if we can't detect TypeScript
+                fixedFiles[filename] = content;
+              }
+            } else if (filename === 'README.md' || filename.endsWith('_test.py')) {
+              // Keep test files and README as is
+              fixedFiles[filename] = content;
+            } else {
+              // For other files, check if extension matches language
+              if (language === "typescript" && !filename.match(/\.(tsx?|jsx?|json|md)$/)) {
+                // Wrong extension for TypeScript project
+                const baseNameMatch = filename.match(/^(.+)\.\w+$/);
+                const baseName = baseNameMatch ? baseNameMatch[1] : filename;
+                const newFilename = `${baseName}.tsx`;
+                fixedFiles[newFilename] = content;
+              } else {
+                fixedFiles[filename] = content;
+              }
+            }
+          });
+          
+          files = fixedFiles;
+          console.log('Fixed files:', Object.keys(files));
+        }
+        
+        // Validate we got the expected file types
+        const fileExtensions = Object.keys(files).map(f => f.split('.').pop());
+        const hasExpectedExtensions = language === "typescript" 
+          ? fileExtensions.some(ext => ['tsx', 'ts', 'jsx', 'js'].includes(ext || ''))
+          : fileExtensions.some(ext => ext === 'py');
+        
+        if (!hasExpectedExtensions && files && Object.keys(files).length > 0) {
+          console.warn(`Warning: Generated files don't match expected language (${language})`);
+          setError(`Generated files don't match expected format. Check console for details.`);
+        }
+        
+        setGeneratedCode(files);
         setShowDevelopment(true);
       } else {
         throw new Error(data.message || 'Failed to generate code');
@@ -238,7 +375,7 @@ const FeaturePage: React.FC = () => {
       fontWeight: 700
     },
     stepNumberActive: {
-      background: 'linear-gradient(135deg, rgb(102, 234, 128) 0%, rgb(39, 105, 50) 100%)',
+      background: 'linear-gradient(135deg, rgb(73, 132, 147) 0%, rgb(73, 132, 147)  100%)',
     },
     stepText: {
       fontSize: '24px',
@@ -327,7 +464,7 @@ const FeaturePage: React.FC = () => {
     startButton: {
       background: isLoading 
         ? 'linear-gradient(135deg, #cbd5e0 0%, #a0aec0 100%)'
-        : 'linear-gradient(135deg, rgb(234, 102, 102) 0%, rgb(72, 39, 105) 100%)',
+        : 'linear-gradient(135deg, rgb(36, 8, 222) 0%,rgb(36, 8, 222)100%)',
       color: 'white',
       fontSize: '20px',
       fontWeight: 600,
