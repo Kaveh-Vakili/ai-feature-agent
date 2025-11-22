@@ -3,6 +3,7 @@ import AiDevelopment from './AiDevelopment';
 
 interface FileContent {
   name: string;
+  path: string; // Relative path preserving folder structure
   content: string;
 }
 
@@ -79,12 +80,24 @@ const FeaturePage: React.FC = () => {
           file.name.endsWith('.jsx') ||
           file.name.endsWith('.tsx') ||
           file.name.endsWith('.json') ||
-          file.name.endsWith('.md')) {
+          file.name.endsWith('.md') ||
+          file.name.endsWith('.txt') ||
+          file.name.endsWith('.html') ||
+          file.name.endsWith('.css') ||
+          file.name.endsWith('.yaml') ||
+          file.name.endsWith('.yml') ||
+          file.name.endsWith('.toml') ||
+          file.name.endsWith('.ini') ||
+          file.name.endsWith('.conf') ||
+          file.name.endsWith('.config')) {
         
         try {
           const text = await file.text();
+          // Preserve folder structure using webkitRelativePath if available
+          const relativePath = (file as any).webkitRelativePath || file.name;
           contents.push({
             name: file.name,
+            path: relativePath,
             content: text
           });
         } catch (err) {
@@ -159,9 +172,15 @@ const FeaturePage: React.FC = () => {
   
     try {
       // Prepare enhanced request body
+      // Convert FileContent to format expected by backend (preserve path)
+      const repositoryFiles = fileContents.map(fc => ({
+        name: fc.path, // Use path to preserve folder structure
+        content: fc.content
+      }));
+      
       const requestBody = {
         description: featureDescription,
-        repository_files: fileContents.length > 0 ? fileContents : [],
+        repository_files: repositoryFiles,
         language: language,
         framework: framework,
         // Add metadata to help backend understand what we want
@@ -600,14 +619,14 @@ Example:
               ref={fileInputRef}
               type="file"
               multiple
+              {...({ webkitdirectory: '', directory: '' } as any)}
               style={{ display: 'none' }}
               onChange={handleFileChange}
-              accept=".py,.js,.ts,.jsx,.tsx,.json,.md,.txt,.html,.css"
             />
             <div style={styles.folderIcon}>📁</div>
             <div style={styles.uploadTitle}>Upload Repository</div>
             <div style={styles.uploadSubtitle}>
-              Click to browse or drag and drop your repository files
+              Click to browse a folder, or drag and drop files/folders
             </div>
             {uploadedFiles.length > 0 && (
               <div style={{ marginTop: '20px' }}>
@@ -615,13 +634,19 @@ Example:
                   ✓ {uploadedFiles.length} files uploaded ({fileContents.length} readable)
                 </div>
                 <div style={styles.fileList}>
-                  {uploadedFiles.slice(0, 10).map((file, index) => (
+                  {fileContents.slice(0, 20).map((fileContent, index) => (
                     <div key={index} style={styles.fileItem}>
-                      {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                      {fileContent.path !== fileContent.name ? (
+                        <span style={{ color: '#667eea', fontFamily: 'monospace', fontSize: '12px' }}>
+                          📁 {fileContent.path}
+                        </span>
+                      ) : (
+                        <span>{fileContent.name}</span>
+                      )}
                     </div>
                   ))}
-                  {uploadedFiles.length > 10 && (
-                    <div style={styles.fileItem}>... and {uploadedFiles.length - 10} more files</div>
+                  {fileContents.length > 20 && (
+                    <div style={styles.fileItem}>... and {fileContents.length - 20} more files</div>
                   )}
                 </div>
               </div>
